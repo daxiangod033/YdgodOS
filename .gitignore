@@ -1,0 +1,27 @@
+# Keil MDK5 用户本地配置（不要提交）
+*.uvguix.*
+*.uvoptx
+*.bak
+*.plg
+*.crf
+*.d
+*.dep
+*.lnp
+
+
+# 编译生成文件
+*.o
+*.obj
+*.axf
+*.hex
+*.bin
+*.map
+*.lst
+*.iex
+
+# IDE、系统垃圾文件
+.vscode/
+.idea/
+Thumbs.db
+*.swp
+*~
