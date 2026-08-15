@@ -61,5 +61,4 @@ Refer to original FreeRTOS source files for full copyright notice.
 - 1 由os_tick_handler 遍历任务数组 根据task.tick是否达到task.reload，从而将任务由等待态转向就绪态
 - 2 当前一个task释放cpu之后  由Scheduler 调度下一个task ，并将task从就绪态转为运行态
 - 3  task释放cpu之后 ,返回Scheduler，由Scheduler将task转为等待态
-## 下一个版本预告
-- 4、5将会在下一个版本中实现，目标是使用时间片轮转调度，实现更高的调度效率
+
