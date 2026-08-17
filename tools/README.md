@@ -18,7 +18,7 @@ python tools/serial_terminal.py --list
 python tools/serial_terminal.py --port COM3
 ```
 
-程序默认使用 `115200 8N1`。交互模式会持续监听开发板输出，并将每次按键立即发给开发板，因此可以正常使用 YdgodOS Shell 的回显、退格、Tab 和 Ctrl-L。按 `Ctrl+]` 退出终端。
+程序默认使用 `115200 8N1`。交互模式会持续监听开发板输出，并将每次按键立即发给开发板，因此可以正常使用 YdgodOS Shell 的回显、退格、Tab 和 Ctrl-L。上下方向键用于逐行翻阅 OLED 历史内容；按 `Ctrl+]` 退出终端。
 
 仅监听并保存原始数据：
 

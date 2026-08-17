@@ -80,10 +80,21 @@ static void HeartbeatTask(void *argument);
 /* USER CODE BEGIN 0 */
 static int ConsoleRead(uint8_t *ch)
 {
-  if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) == RESET) {
-    return 0;
+  for (;;) {
+    if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE) == RESET) {
+      return 0;
+    }
+    if (HAL_UART_Receive(&huart1, ch, 1U, 0U) != HAL_OK) {
+      return 0;
+    }
+    if (*ch == OLED_SHELL_SCROLL_UP_KEY) {
+      oled_shell_scroll_up();
+    } else if (*ch == OLED_SHELL_SCROLL_DOWN_KEY) {
+      oled_shell_scroll_down();
+    } else {
+      return 1;
+    }
   }
-  return (HAL_UART_Receive(&huart1, ch, 1U, 0U) == HAL_OK) ? 1 : 0;
 }
 
 static void ConsoleWrite(const uint8_t *data, uint16_t length)

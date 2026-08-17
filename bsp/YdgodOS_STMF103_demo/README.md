@@ -34,7 +34,7 @@ YdgodOS v2.0.0 - STM32F103 edition
 [ OK ] Console: USART1 PA9(TX)/PA10(RX), 115200 8N1
 [ OK ] Run indicator: PC13 heartbeat (active-low)
 
-ydgodos@f103:~$ 
+~$ 
 ```
 
 支持 `help`、`clear`、`echo`、`history`、`info`、`uptime`、`tasks`、`heap`、`led` 和 `reboot`。Tab 行为与 Linux Shell 类似：唯一候选直接补全，多个候选补公共前缀，连续两次 Tab 列出候选；`help` 和 `led` 的参数也可补全。上、下方向键浏览历史，`Ctrl-L` 清屏，`Ctrl-C` 取消当前输入。

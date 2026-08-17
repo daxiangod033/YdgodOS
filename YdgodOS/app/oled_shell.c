@@ -7,49 +7,142 @@
 #include "task.h"
 #include "ydgodos_ssd1315.h"
 
-#define OLED_SHELL_COLUMNS           21U
-#define OLED_SHELL_ROWS               8U
-#define OLED_SHELL_TX_SOURCE_FLAG   0x00U
-#define OLED_SHELL_RX_SOURCE_FLAG   0x80U
-#define OLED_SHELL_DATA_MASK        0x7FU
-#define OLED_SHELL_BUFFER_MASK      (OLED_SHELL_CHARACTER_BUFFER_SIZE - 1U)
+#define OLED_SHELL_COLUMNS          21U
+#define OLED_SHELL_VISIBLE_ROWS      8U
+#define OLED_SHELL_HISTORY_ROWS     (OLED_SHELL_CHARACTER_BUFFER_SIZE / OLED_SHELL_COLUMNS)
 #define OLED_SHELL_REFRESH_MS       (1000U / OLED_SHELL_REFRESH_HZ)
 #define OLED_SHELL_RETRY_TICKS      10U
 
-#if (OLED_SHELL_CHARACTER_BUFFER_SIZE & OLED_SHELL_BUFFER_MASK) != 0
-#error OLED_SHELL_CHARACTER_BUFFER_SIZE must be a power of two
-#endif
-
-typedef struct {
-    char cells[OLED_SHELL_ROWS][OLED_SHELL_COLUMNS];
-    uint8_t row;
-    uint8_t column;
-    uint8_t escape_state;
-} oled_shell_terminal_t;
-
-/* Exactly 1 KiB. Bit 7 stores RX/TX source; bits 0..6 store ASCII. */
+/* Exactly 1 KiB. The first 1008 bytes hold 48 rows x 21 columns. */
 static uint8_t character_buffer[OLED_SHELL_CHARACTER_BUFFER_SIZE];
-static volatile uint16_t buffer_head;
-static volatile uint16_t buffer_tail;
-static volatile uint16_t buffer_count;
-static volatile uint32_t dropped_characters;
+static uint8_t current_row;
+static uint8_t history_row_count;
+static uint8_t current_column;
+static uint8_t escape_state;
+static uint8_t csi_parameter;
+static uint8_t view_offset;
+static uint8_t history_initialized;
+static volatile uint8_t display_dirty;
 
-static oled_shell_terminal_t terminal;
-
-static uint8_t normalize_character(uint8_t character)
+static uint16_t row_offset(uint8_t row)
 {
-    if ((character == '\r') || (character == '\n') ||
-        (character == '\t') || (character == '\b') ||
-        (character == 0x1BU)) {
-        return character;
-    }
-    if ((character < 0x20U) || (character > 0x7EU)) {
-        return (uint8_t)'?';
-    }
-    return character;
+    return (uint16_t)row * OLED_SHELL_COLUMNS;
 }
 
-static void buffer_write(const uint8_t *data, uint16_t length, uint8_t source)
+static void history_initialize_locked(void)
+{
+    if (history_initialized == 0U) {
+        memset(character_buffer, ' ', sizeof(character_buffer));
+        current_row = 0U;
+        history_row_count = 1U;
+        current_column = 0U;
+        escape_state = 0U;
+        csi_parameter = 0U;
+        view_offset = 0U;
+        history_initialized = 1U;
+        display_dirty = 1U;
+    }
+}
+
+static void history_clear_locked(void)
+{
+    memset(character_buffer, ' ', sizeof(character_buffer));
+    current_row = 0U;
+    history_row_count = 1U;
+    current_column = 0U;
+    view_offset = 0U;
+    display_dirty = 1U;
+}
+
+static uint8_t maximum_view_offset_locked(void)
+{
+    if (history_row_count > OLED_SHELL_VISIBLE_ROWS) {
+        return (uint8_t)(history_row_count - OLED_SHELL_VISIBLE_ROWS);
+    }
+    return 0U;
+}
+
+static void history_new_line_locked(void)
+{
+    uint8_t maximum_offset;
+
+    current_row++;
+    if (current_row >= OLED_SHELL_HISTORY_ROWS) {
+        current_row = 0U;
+    }
+    if (history_row_count < OLED_SHELL_HISTORY_ROWS) {
+        history_row_count++;
+    }
+    memset(&character_buffer[row_offset(current_row)], ' ', OLED_SHELL_COLUMNS);
+    current_column = 0U;
+
+    /* Keep the same old rows visible while new output arrives. */
+    maximum_offset = maximum_view_offset_locked();
+    if ((view_offset != 0U) && (view_offset < maximum_offset)) {
+        view_offset++;
+    }
+}
+
+static void history_put_printable_locked(uint8_t character)
+{
+    if (current_column >= OLED_SHELL_COLUMNS) {
+        history_new_line_locked();
+    }
+    character_buffer[row_offset(current_row) + current_column] = character;
+    current_column++;
+}
+
+static void history_put_locked(uint8_t character)
+{
+    uint8_t spaces;
+
+    if (escape_state == 1U) {
+        if (character == (uint8_t)'[') {
+            escape_state = 2U;
+            csi_parameter = 0U;
+        } else {
+            escape_state = 0U;
+        }
+        return;
+    }
+    if (escape_state == 2U) {
+        if ((character >= (uint8_t)'0') && (character <= (uint8_t)'9')) {
+            csi_parameter = (uint8_t)(csi_parameter * 10U +
+                                      character - (uint8_t)'0');
+            return;
+        }
+        if ((character >= 0x40U) && (character <= 0x7EU)) {
+            if ((character == (uint8_t)'J') && (csi_parameter == 2U)) {
+                history_clear_locked();
+            }
+            escape_state = 0U;
+        }
+        return;
+    }
+    if (character == 0x1BU) {
+        escape_state = 1U;
+    } else if (character == (uint8_t)'\n') {
+        history_new_line_locked();
+    } else if (character == (uint8_t)'\r') {
+        current_column = 0U;
+    } else if (character == (uint8_t)'\b') {
+        if (current_column != 0U) {
+            current_column--;
+            character_buffer[row_offset(current_row) + current_column] = ' ';
+        }
+    } else if (character == (uint8_t)'\t') {
+        spaces = (uint8_t)(4U - (current_column & 3U));
+        while (spaces-- != 0U) {
+            history_put_printable_locked(' ');
+        }
+    } else if ((character >= 0x20U) && (character <= 0x7EU)) {
+        history_put_printable_locked(character);
+    } else if (character >= 0x80U) {
+        history_put_printable_locked('?');
+    }
+}
+
+static void history_write(const uint8_t *data, uint16_t length)
 {
     uint16_t index;
 
@@ -57,137 +150,108 @@ static void buffer_write(const uint8_t *data, uint16_t length, uint8_t source)
         return;
     }
     taskENTER_CRITICAL();
+    history_initialize_locked();
     for (index = 0U; index < length; index++) {
-        character_buffer[buffer_head] = (uint8_t)(normalize_character(data[index]) | source);
-        buffer_head = (uint16_t)((buffer_head + 1U) & OLED_SHELL_BUFFER_MASK);
-        if (buffer_count < OLED_SHELL_CHARACTER_BUFFER_SIZE) {
-            buffer_count++;
-        } else {
-            buffer_tail = (uint16_t)((buffer_tail + 1U) & OLED_SHELL_BUFFER_MASK);
-            dropped_characters++;
-        }
+        history_put_locked(data[index]);
     }
+    display_dirty = 1U;
     taskEXIT_CRITICAL();
-}
-
-static uint8_t buffer_read(uint8_t *value)
-{
-    uint8_t available = 0U;
-
-    taskENTER_CRITICAL();
-    if (buffer_count != 0U) {
-        *value = character_buffer[buffer_tail];
-        buffer_tail = (uint16_t)((buffer_tail + 1U) & OLED_SHELL_BUFFER_MASK);
-        buffer_count--;
-        available = 1U;
-    }
-    taskEXIT_CRITICAL();
-    return available;
 }
 
 void oled_shell_write_tx(const uint8_t *data, uint16_t length)
 {
-    buffer_write(data, length, OLED_SHELL_TX_SOURCE_FLAG);
+    history_write(data, length);
 }
 
 void oled_shell_write_rx(const uint8_t *data, uint16_t length)
 {
-    buffer_write(data, length, OLED_SHELL_RX_SOURCE_FLAG);
+    history_write(data, length);
 }
 
-static void terminal_reset(oled_shell_terminal_t *terminal)
+void oled_shell_scroll_up(void)
 {
-    memset(terminal->cells, ' ', sizeof(terminal->cells));
-    terminal->row = 0U;
-    terminal->column = 0U;
-    terminal->escape_state = 0U;
+    uint8_t maximum_offset;
+
+    taskENTER_CRITICAL();
+    history_initialize_locked();
+    maximum_offset = maximum_view_offset_locked();
+    if (view_offset < maximum_offset) {
+        view_offset++;
+        display_dirty = 1U;
+    }
+    taskEXIT_CRITICAL();
 }
 
-static void terminal_new_line(oled_shell_terminal_t *terminal)
+void oled_shell_scroll_down(void)
 {
-    if (terminal->row + 1U < OLED_SHELL_ROWS) {
-        terminal->row++;
-    } else {
-        memmove(terminal->cells[0], terminal->cells[1],
-                (OLED_SHELL_ROWS - 1U) * OLED_SHELL_COLUMNS);
-        memset(terminal->cells[OLED_SHELL_ROWS - 1U], ' ', OLED_SHELL_COLUMNS);
+    taskENTER_CRITICAL();
+    history_initialize_locked();
+    if (view_offset != 0U) {
+        view_offset--;
+        display_dirty = 1U;
     }
-    terminal->column = 0U;
+    taskEXIT_CRITICAL();
 }
 
-static void terminal_put_printable(oled_shell_terminal_t *terminal, char character)
+static void snapshot_view(uint8_t view[OLED_SHELL_VISIBLE_ROWS][OLED_SHELL_COLUMNS])
 {
-    if (terminal->column >= OLED_SHELL_COLUMNS) {
-        terminal_new_line(terminal);
+    uint8_t available_rows;
+    uint8_t visible_rows;
+    uint8_t leading_rows;
+    uint8_t output_row;
+    uint8_t age;
+    uint8_t source_row;
+
+    taskENTER_CRITICAL();
+    history_initialize_locked();
+    memset(view, ' ', OLED_SHELL_VISIBLE_ROWS * OLED_SHELL_COLUMNS);
+    available_rows = (uint8_t)(history_row_count - view_offset);
+    visible_rows = (available_rows < OLED_SHELL_VISIBLE_ROWS) ?
+                   available_rows : OLED_SHELL_VISIBLE_ROWS;
+    leading_rows = (uint8_t)(OLED_SHELL_VISIBLE_ROWS - visible_rows);
+
+    for (output_row = 0U; output_row < visible_rows; output_row++) {
+        age = (uint8_t)(view_offset + visible_rows - output_row - 1U);
+        source_row = (uint8_t)((current_row + OLED_SHELL_HISTORY_ROWS - age) %
+                               OLED_SHELL_HISTORY_ROWS);
+        memcpy(view[leading_rows + output_row],
+               &character_buffer[row_offset(source_row)], OLED_SHELL_COLUMNS);
     }
-    terminal->cells[terminal->row][terminal->column++] = character;
+    taskEXIT_CRITICAL();
 }
 
-static void terminal_put(oled_shell_terminal_t *terminal, uint8_t character)
+static uint8_t take_display_dirty(void)
 {
-    uint8_t spaces;
+    uint8_t dirty;
 
-    if (terminal->escape_state == 1U) {
-        terminal->escape_state = (character == (uint8_t)'[') ? 2U : 0U;
-        return;
-    }
-    if (terminal->escape_state == 2U) {
-        if ((character >= 0x40U) && (character <= 0x7EU)) {
-            terminal->escape_state = 0U;
-        }
-        return;
-    }
-    if (character == 0x1BU) {
-        terminal->escape_state = 1U;
-    } else if (character == (uint8_t)'\n') {
-        terminal_new_line(terminal);
-    } else if (character == (uint8_t)'\r') {
-        terminal->column = 0U;
-    } else if (character == (uint8_t)'\b') {
-        if (terminal->column != 0U) {
-            terminal->column--;
-            terminal->cells[terminal->row][terminal->column] = ' ';
-        }
-    } else if (character == (uint8_t)'\t') {
-        spaces = (uint8_t)(4U - (terminal->column & 3U));
-        while (spaces-- != 0U) {
-            terminal_put_printable(terminal, ' ');
-        }
-    } else if ((character >= 0x20U) && (character <= 0x7EU)) {
-        terminal_put_printable(terminal, (char)character);
-    }
+    taskENTER_CRITICAL();
+    dirty = display_dirty;
+    display_dirty = 0U;
+    taskEXIT_CRITICAL();
+    return dirty;
 }
 
-static uint8_t process_character_buffer(void)
+static void mark_display_dirty(void)
 {
-    uint8_t entry;
-    uint8_t changed = 0U;
-
-    while (buffer_read(&entry) != 0U) {
-        terminal_put(&terminal, entry & OLED_SHELL_DATA_MASK);
-        changed = 1U;
-    }
-    return changed;
-}
-
-static void render_terminal(const oled_shell_terminal_t *terminal)
-{
-    uint8_t row;
-    uint8_t column;
-
-    for (row = 0U; row < OLED_SHELL_ROWS; row++) {
-        for (column = 0U; column < OLED_SHELL_COLUMNS; column++) {
-            ydgodos_ssd1315_draw_char6x8((uint8_t)(column * 6U),
-                                          row,
-                                          terminal->cells[row][column]);
-        }
-    }
+    taskENTER_CRITICAL();
+    display_dirty = 1U;
+    taskEXIT_CRITICAL();
 }
 
 static void render_display(void)
 {
+    uint8_t view[OLED_SHELL_VISIBLE_ROWS][OLED_SHELL_COLUMNS];
+    uint8_t row;
+    uint8_t column;
+
+    snapshot_view(view);
     ydgodos_ssd1315_clear();
-    render_terminal(&terminal);
+    for (row = 0U; row < OLED_SHELL_VISIBLE_ROWS; row++) {
+        for (column = 0U; column < OLED_SHELL_COLUMNS; column++) {
+            ydgodos_ssd1315_draw_char6x8((uint8_t)(column * 6U), row,
+                                          (char)view[row][column]);
+        }
+    }
 }
 
 void oled_shell_task(void *argument)
@@ -195,29 +259,34 @@ void oled_shell_task(void *argument)
     TickType_t last_wake = xTaskGetTickCount();
     uint8_t initialized = 0U;
     uint8_t retry_count = 0U;
-    uint8_t changed;
 
     (void)argument;
-    terminal_reset(&terminal);
+    taskENTER_CRITICAL();
+    history_initialize_locked();
+    taskEXIT_CRITICAL();
 
     for (;;) {
-        changed = process_character_buffer();
         if (initialized == 0U) {
             if (retry_count == 0U) {
                 if (ydgodos_ssd1315_init() == YDGODOS_SOFT_I2C_OK) {
                     initialized = 1U;
                     render_display();
-                    (void)ydgodos_ssd1315_display();
+                    if (ydgodos_ssd1315_display() == YDGODOS_SOFT_I2C_OK) {
+                        (void)take_display_dirty();
+                    } else {
+                        initialized = 0U;
+                    }
                 }
                 retry_count = OLED_SHELL_RETRY_TICKS;
             } else {
                 retry_count--;
             }
-        } else if (changed != 0U) {
+        } else if (take_display_dirty() != 0U) {
             render_display();
             if (ydgodos_ssd1315_display() != YDGODOS_SOFT_I2C_OK) {
                 initialized = 0U;
                 retry_count = OLED_SHELL_RETRY_TICKS;
+                mark_display_dirty();
             }
         }
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(OLED_SHELL_REFRESH_MS));

@@ -29,6 +29,8 @@ except ImportError as exc:  # pragma: no cover - exercised when dependency is ab
 
 
 EXIT_KEY = b"\x1d"  # Ctrl+]
+OLED_SCROLL_UP_KEY = b"\x10"    # Ctrl+P, consumed by the MCU OLED app.
+OLED_SCROLL_DOWN_KEY = b"\x0e"  # Ctrl+N, consumed by the MCU OLED app.
 
 
 @dataclass(frozen=True)
@@ -241,6 +243,7 @@ class SerialTerminal:
 
 
 def interactive_keyboard(terminal: SerialTerminal) -> None:
+    diagnostic("上下方向键翻阅 OLED 历史内容；Ctrl+] 退出")
     diagnostic("交互模式：按 Ctrl+] 退出，输入会立即发送到开发板")
     if os.name == "nt":
         _windows_keyboard(terminal)
@@ -259,7 +262,11 @@ def _windows_keyboard(terminal: SerialTerminal) -> None:
             continue
         character = msvcrt.getwch()
         if character in ("\x00", "\xe0"):
-            msvcrt.getwch()  # Ignore Windows extended-key scan code.
+            scan_code = msvcrt.getwch()
+            if scan_code == "H":
+                terminal.write(OLED_SCROLL_UP_KEY)
+            elif scan_code == "P":
+                terminal.write(OLED_SCROLL_DOWN_KEY)
             continue
         encoded = character.encode(terminal.config.encoding, errors="replace")
         if encoded == EXIT_KEY:
@@ -282,6 +289,23 @@ def _posix_keyboard(terminal: SerialTerminal) -> None:
             data = os.read(descriptor, 1)
             if data == EXIT_KEY:
                 return
+            if data == b"\x1b":
+                sequence = bytearray(data)
+                deadline = time.monotonic() + 0.03
+                while len(sequence) < 3:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    more, _, _ = select.select([descriptor], [], [], remaining)
+                    if not more:
+                        break
+                    sequence.extend(os.read(descriptor, 1))
+                if bytes(sequence) in (b"\x1b[A", b"\x1bOA"):
+                    data = OLED_SCROLL_UP_KEY
+                elif bytes(sequence) in (b"\x1b[B", b"\x1bOB"):
+                    data = OLED_SCROLL_DOWN_KEY
+                else:
+                    data = bytes(sequence)
             terminal.write(data)
     finally:
         termios.tcsetattr(descriptor, termios.TCSADRAIN, previous)
