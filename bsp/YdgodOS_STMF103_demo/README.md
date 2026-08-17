@@ -8,6 +8,8 @@
 | --- | --- | --- |
 | Shell TX | PA9 / USART1_TX | 115200, 8N1 |
 | Shell RX | PA10 / USART1_RX | 115200, 8N1 |
+| OLED SCL | PB6 | software I2C, 400 kHz |
+| OLED SDA | PB7 | software I2C, SSD1315 address 0x3C |
 | 运行指示灯 | PC13 | 500 ms 翻转，低电平点亮 |
 
 USB-TTL 必须使用 3.3 V 电平，连接 `PA9 -> RX`、`PA10 -> TX`、`GND -> GND`。

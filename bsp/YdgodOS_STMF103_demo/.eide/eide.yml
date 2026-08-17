@@ -31,6 +31,19 @@ virtualFolder:
               files:
                 - path: ../../YdgodOS/shell/yd_shell.c
               folders: []
+            - name: App
+              files:
+                - path: ../../YdgodOS/app/oled_shell.c
+              folders: []
+            - name: Drivers
+              files:
+                - path: ../../YdgodOS/driver/iic/ydgodos_soft_i2c.c
+                - path: ../../YdgodOS/driver/ssd1315/ydgodos_ssd1315.c
+              folders: []
+            - name: Font
+              files:
+                - path: ../../YdgodOS/Font/Font.c
+              folders: []
             - name: FreeRTOS-Kernel
               files:
                 - path: ../../YdgodOS/FreeRTOS/list.c
@@ -79,6 +92,10 @@ targets:
         - .cmsis/include
         - MDK-ARM/RTE/_YdgodOS_STMF103_demo
         - ../../YdgodOS/shell
+        - ../../YdgodOS/app
+        - ../../YdgodOS/driver/iic
+        - ../../YdgodOS/driver/ssd1315
+        - ../../YdgodOS/Font
         - ../../YdgodOS/FreeRTOS/include
         - ../../YdgodOS/FreeRTOS/portable/RVDS/ARM_CM3
       libList: []

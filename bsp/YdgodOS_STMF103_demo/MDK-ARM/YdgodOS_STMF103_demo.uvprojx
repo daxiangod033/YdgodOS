@@ -332,7 +332,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32F103xB</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../../../YdgodOS/shell;../../../YdgodOS/FreeRTOS/include;../../../YdgodOS/FreeRTOS/portable/RVDS/ARM_CM3</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../../../YdgodOS/shell;../../../YdgodOS/app;../../../YdgodOS/driver/iic;../../../YdgodOS/driver/ssd1315;../../../YdgodOS/Font;../../../YdgodOS/FreeRTOS/include;../../../YdgodOS/FreeRTOS/portable/RVDS/ARM_CM3</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -410,6 +410,41 @@
               <FileName>yd_shell.c</FileName>
               <FileType>1</FileType>
               <FilePath>../../../YdgodOS/shell/yd_shell.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/YdgodOS/App</GroupName>
+          <Files>
+            <File>
+              <FileName>oled_shell.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../../YdgodOS/app/oled_shell.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/YdgodOS/Drivers</GroupName>
+          <Files>
+            <File>
+              <FileName>ydgodos_soft_i2c.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../../YdgodOS/driver/iic/ydgodos_soft_i2c.c</FilePath>
+            </File>
+            <File>
+              <FileName>ydgodos_ssd1315.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../../YdgodOS/driver/ssd1315/ydgodos_ssd1315.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/YdgodOS/Font</GroupName>
+          <Files>
+            <File>
+              <FileName>Font.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../../YdgodOS/Font/Font.c</FilePath>
             </File>
           </Files>
         </Group>

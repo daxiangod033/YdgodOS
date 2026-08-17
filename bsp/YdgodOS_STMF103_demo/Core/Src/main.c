@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "oled_shell.h"
 #include "task.h"
 #include "yd_shell.h"
 
@@ -39,6 +40,7 @@
 /* USER CODE BEGIN PD */
 #define YDGODOS_VERSION       "2.0.0"
 #define SHELL_TASK_STACK      512U
+#define OLED_TASK_STACK       256U
 #define HEARTBEAT_TASK_STACK  128U
 #define HEARTBEAT_PERIOD_MS   500U
 
@@ -87,6 +89,7 @@ static int ConsoleRead(uint8_t *ch)
 static void ConsoleWrite(const uint8_t *data, uint16_t length)
 {
   if ((data != NULL) && (length != 0U)) {
+    oled_shell_write_tx(data, length);
     (void)HAL_UART_Transmit(&huart1, (uint8_t *)data, length, 1000U);
   }
 }
@@ -250,21 +253,20 @@ static const yd_shell_command_t shell_commands[] = {
 
 static void PrintBootInfo(void)
 {
-  yd_shell_puts(&os_shell,
-    "\r\n"
-    " __   __    _                 _  ___  ____  \r\n"
-    "  \\  / / __| | __ _  ___   __| |/ _ \\/ ___| \r\n"
-    "   \\  / / _` |/ _` |/ _ \\ / _` | | | \\___ \\ \r\n"
-    "    | || (_| | (_| | (_) | (_| | |_| |___) |\r\n"
-    "    |_|\\__,_|\\__, |\\___/ \\__,_|\\___/|____/ \r\n"
-    "              |___/                          \r\n"
-    "\r\n"
-    "YdgodOS v" YDGODOS_VERSION " - STM32F103 edition\r\n"
+  yd_shell_puts(&os_shell,"YdgodOS v" YDGODOS_VERSION " - STM32F103 edition\r\n"
     "[ OK ] System clock: 72 MHz\r\n"
     "[ OK ] Kernel: FreeRTOS " tskKERNEL_VERSION_NUMBER "\r\n"
     "[ OK ] Console: USART1 PA9(TX)/PA10(RX), 115200 8N1\r\n"
     "[ OK ] Run indicator: PC13 heartbeat (active-low)\r\n"
-    "Type 'help' to list commands. Tab completes; Ctrl-L clears.\r\n\r\n");
+    "Type 'help' to list commands. Tab completes; Ctrl-L clears.\r\n\r\n"
+    "\r\n"
+    "\r\n"
+    "      Ydgod OS\r\n"
+    "\r\n"
+    "        >'v'<\r\n"
+    "\r\n"
+
+    );
 }
 
 static void ShellTask(void *argument)
@@ -273,7 +275,7 @@ static void ShellTask(void *argument)
   yd_shell_init(&os_shell, ConsoleRead, ConsoleWrite,
                 shell_commands,
                 (uint16_t)(sizeof(shell_commands) / sizeof(shell_commands[0])),
-                "ydgodos@f103:~$ ");
+                "~$");
   PrintBootInfo();
   yd_shell_prompt(&os_shell);
   for (;;) {
@@ -330,6 +332,7 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   if ((xTaskCreate(ShellTask, "shell", SHELL_TASK_STACK, NULL, 2U, NULL) != pdPASS) ||
+      (xTaskCreate(oled_shell_task, "oled", OLED_TASK_STACK, NULL, 1U, NULL) != pdPASS) ||
       (xTaskCreate(HeartbeatTask, "heartbeat", HEARTBEAT_TASK_STACK, NULL, 1U, NULL) != pdPASS)) {
     Error_Handler();
   }
